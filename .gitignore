@@ -1,0 +1,45 @@
+# Rust: Cargo.lock is tracked, so the desktop and Android builds resolve the
+# same verified dependency versions when they compile this library.
+/target/
+**/target/
+
+# Local tools, credentials and editor state.
+/.agents/
+/.codex/
+/.claude/
+/.aws/
+/.cargo/credentials
+/.cargo/credentials.toml
+/.idea/
+/.vscode/
+.env
+.env.*
+!.env.example
+.DS_Store
+*.swp
+*.swo
+*~
+*.log
+*.log.*
+*.tmp
+*.orig
+*.rej
+
+# Audit and review notes stay outside the repository.
+/audit_report*.md
+
+# Personal vaults, cloud configuration and key files.
+/vault
+/vault.*
+vault.s3.json
+vault.s3-cache/
+vault.history-*/
+*.sek
+*.key
+*.keyx
+*.pem
+*.p12
+*.pfx
+
+# Public test data required by the test suite, not personal secrets.
+!/tests/fixtures/public-test.key
