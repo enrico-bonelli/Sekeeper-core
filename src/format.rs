@@ -2,6 +2,7 @@
 //! followed by the encrypted JSON of [`VaultData`]. The key comes from
 //! Argon2id over the master password, with the key file as secret input K.
 
+use crate::i18n::tr;
 use crate::keyfile::KeyFile;
 use crate::limits::{self, MAX_LINEAGE, MAX_PARENTS, MAX_SNAPSHOT_BYTES};
 use crate::model::{Revision, RevisionLink, VaultData};
@@ -9,8 +10,8 @@ use aes_gcm::aead::{Aead, KeyInit, OsRng, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use argon2::{Algorithm, Argon2, Block, Params, Version};
 use rand::RngCore;
+use std::fmt;
 use std::sync::Mutex;
-use thiserror::Error;
 use zeroize::Zeroizing;
 
 pub const MAGIC: &[u8; 8] = b"SEKEEPER";
@@ -29,19 +30,41 @@ pub const PARALLELISM: u32 = 4;
 /// test runners or a phone under memory pressure must not multiply that.
 pub static KDF_LOCK: Mutex<()> = Mutex::new(());
 
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FormatError {
-    #[error("password o file chiave errati, oppure vault danneggiato")]
     InvalidPasswordOrCorrupted,
-    #[error("formato del vault non valido o non supportato: serve un vault v3 con file chiave")]
     InvalidFormat,
-    #[error("errore durante la derivazione della chiave")]
     KeyDerivation,
-    #[error("errore durante la cifratura del vault")]
     Encryption,
-    #[error("dati del vault non validi")]
     InvalidData,
 }
+
+impl fmt::Display for FormatError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let message = match self {
+            Self::InvalidPasswordOrCorrupted => tr(
+                "wrong password or key file, or corrupted vault",
+                "password o file chiave errati, oppure vault danneggiato",
+            ),
+            Self::InvalidFormat => tr(
+                "invalid or unsupported vault format: a v3 vault with a key file is required",
+                "formato del vault non valido o non supportato: serve un vault v3 con file chiave",
+            ),
+            Self::KeyDerivation => tr(
+                "error deriving the key",
+                "errore durante la derivazione della chiave",
+            ),
+            Self::Encryption => tr(
+                "error encrypting the vault",
+                "errore durante la cifratura del vault",
+            ),
+            Self::InvalidData => tr("invalid vault data", "dati del vault non validi"),
+        };
+        f.write_str(message)
+    }
+}
+
+impl std::error::Error for FormatError {}
 
 pub fn header(salt: &[u8; SALT_LEN], nonce: &[u8; NONCE_LEN]) -> Vec<u8> {
     let mut header = Vec::with_capacity(HEADER_LEN);
@@ -295,5 +318,52 @@ mod tests {
             key.read_sync_metadata(&sealed).err(),
             Some(FormatError::InvalidData)
         );
+    }
+
+    #[test]
+    fn errors_render_in_english_and_italian() {
+        use crate::i18n::{Lang, with_lang};
+
+        with_lang(Lang::En, || {
+            assert_eq!(
+                FormatError::InvalidPasswordOrCorrupted.to_string(),
+                "wrong password or key file, or corrupted vault"
+            );
+            assert_eq!(
+                FormatError::InvalidFormat.to_string(),
+                "invalid or unsupported vault format: a v3 vault with a key file is required"
+            );
+            assert_eq!(
+                FormatError::KeyDerivation.to_string(),
+                "error deriving the key"
+            );
+            assert_eq!(
+                FormatError::Encryption.to_string(),
+                "error encrypting the vault"
+            );
+            assert_eq!(FormatError::InvalidData.to_string(), "invalid vault data");
+        });
+        with_lang(Lang::It, || {
+            assert_eq!(
+                FormatError::InvalidPasswordOrCorrupted.to_string(),
+                "password o file chiave errati, oppure vault danneggiato"
+            );
+            assert_eq!(
+                FormatError::InvalidFormat.to_string(),
+                "formato del vault non valido o non supportato: serve un vault v3 con file chiave"
+            );
+            assert_eq!(
+                FormatError::KeyDerivation.to_string(),
+                "errore durante la derivazione della chiave"
+            );
+            assert_eq!(
+                FormatError::Encryption.to_string(),
+                "errore durante la cifratura del vault"
+            );
+            assert_eq!(
+                FormatError::InvalidData.to_string(),
+                "dati del vault non validi"
+            );
+        });
     }
 }

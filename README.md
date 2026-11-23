@@ -1,31 +1,35 @@
 # sekeeper-core
 
-La parte di [Sekeeper](../sekeeper) che tutte le app devono condividere: il formato
-del vault v3, il file chiave, il modello delle credenziali e la cronologia delle
-versioni. Non contiene interfaccia grafica, accesso ai file o codice di rete, così
-la stessa implementazione serve l'app desktop e quella Android.
+> **[Leggi in italiano](README.it.md)**
 
-| Modulo | Contenuto |
+The shared core library for [Sekeeper](../sekeeper): the v3 vault format, key file,
+credential model, revision history, device setup transfer, CSV import/export, and
+internationalization. It contains no UI, filesystem access, or networking code, so
+the exact same implementation powers both the Linux desktop app and the Android app.
+
+| Module | Purpose |
 | --- | --- |
-| `format` | Intestazione v3, Argon2id con il file chiave come input segreto K, AES-256-GCM e validazione dei metadati |
-| `keyfile` | Formato `SEKEY001`: creazione e verifica del contenuto |
-| `catalog` | Grafo delle revisioni, versione corrente, conflitti e confronto tra versioni |
-| `model` | Credenziali, revisioni e ricerca |
-| `transfer` | Importazione ed esportazione CSV |
-| `limits` | Limiti difensivi e identificativi |
+| `format` | v3 header, Argon2id with the key file as secret input `K`, AES-256-GCM, and metadata validation |
+| `keyfile` | `SEKEY001` format: creation, verification, and QR transfer encoding |
+| `setup` | Desktop-to-phone setup QR payload (key file + S3 destination) |
+| `catalog` | Revision DAG, current head selection, conflicts, and version comparison |
+| `model` | Credentials, revisions, and search |
+| `transfer` | CSV import and export (accepting both English and Italian column headers) |
+| `limits` | Defensive size/count limits and revision identifiers |
+| `i18n` | Automatic English/Italian localization based on environment locale (Italian when detected, English fallback) |
 
-Le app la usano come dipendenza di percorso, con questo repository clonato accanto
-al loro (`../sekeeper-core`).
+Consumer apps depend on this crate via a local path dependency, with this repository
+cloned next to theirs (`../sekeeper-core`).
 
 ```sh
 cargo test
 cargo clippy --all-targets -- -D warnings
 ```
 
-I test aprono la fixture pubblica `tests/fixtures/vault-v3`, con la password
-`public fixture master password` e il file `tests/fixtures/public-test.key`: un
-formato che cambiasse per errore non riuscirebbe più ad aprirla.
+The test suite opens the public fixture `tests/fixtures/vault-v3` with password
+`public fixture master password` and key file `tests/fixtures/public-test.key`: any
+accidental breaking change to the vault format will fail this test immediately.
 
-## Licenza
+## License
 
 MIT.

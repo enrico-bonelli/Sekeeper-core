@@ -3,6 +3,7 @@
 //! revisions, so the current version can be found even after old copies are
 //! deleted. Missing links, contradictions and cycles always fail closed.
 
+use crate::i18n::tr;
 use crate::limits::{self, MAX_HISTORY_BYTES, MAX_LINEAGE, MAX_VERSIONS};
 use crate::model::{Credential, Revision, RevisionLink};
 use std::collections::{BTreeMap, BTreeSet};
@@ -12,8 +13,8 @@ use thiserror::Error;
 #[error("{0}")]
 pub struct CatalogError(pub String);
 
-fn error(message: &str) -> CatalogError {
-    CatalogError(message.into())
+fn error(en: &'static str, it: &'static str) -> CatalogError {
+    CatalogError(tr(en, it).into())
 }
 
 pub type Result<T> = std::result::Result<T, CatalogError>;
@@ -55,6 +56,7 @@ impl Catalog {
             if let Some(previous) = snapshots.get(&id) {
                 if previous.bytes != bytes {
                     return Err(error(
+                        "different copies share the same identifier; synchronization aborted",
                         "copie diverse hanno lo stesso identificativo; sincronizzazione interrotta",
                     ));
                 }
@@ -63,13 +65,19 @@ impl Catalog {
             size += bytes.len();
             if snapshots.len() >= MAX_VERSIONS || size > MAX_HISTORY_BYTES {
                 return Err(error(
+                    "history too large: archive some copies before synchronizing",
                     "storico troppo grande: archivia alcune copie prima di sincronizzare",
                 ));
             }
-            let (revision, ancestry) = read(&bytes).map_err(|_| error(
-                "una copia S3 è danneggiata o appartiene a un altro vault: verifica il prefisso scelto; nessuna copia locale è stata sostituita"))?;
+            let (revision, ancestry) = read(&bytes).map_err(|_| {
+                error(
+                    "an S3 copy is corrupted or belongs to another vault: check the chosen prefix; no local copy was replaced",
+                    "una copia S3 è danneggiata o appartiene a un altro vault: verifica il prefisso scelto; nessuna copia locale è stata sostituita",
+                )
+            })?;
             if revision.id != id {
                 return Err(error(
+                    "S3 identifier does not match the authenticated content",
                     "identificativo S3 non corrispondente al contenuto autenticato",
                 ));
             }
@@ -87,7 +95,10 @@ impl Catalog {
             );
         }
         if snapshots.is_empty() {
-            return Err(error("nessuna copia versionata disponibile"));
+            return Err(error(
+                "no versioned copy available",
+                "nessuna copia versionata disponibile",
+            ));
         }
         // The small, authenticated links replace complete historical vaults.
         // Missing links, contradictions, cycles and detached fabricated nodes
@@ -99,6 +110,7 @@ impl Catalog {
             for parent in parents {
                 if !links.contains_key(parent) {
                     return Err(error(
+                        "incomplete history: a previous version is missing; no vault was replaced",
                         "storico incompleto: manca una versione precedente; nessun vault è stato sostituito",
                     ));
                 }
@@ -115,7 +127,7 @@ impl Catalog {
             visited += 1;
             if let Some(next) = children.get(&id) {
                 for child in next {
-                    let count = pending.get_mut(child).expect("nodo verificato");
+                    let count = pending.get_mut(child).expect("verified node");
                     *count -= 1;
                     if *count == 0 {
                         ready.push(child.clone());
@@ -124,7 +136,10 @@ impl Catalog {
             }
         }
         if visited != links.len() {
-            return Err(error("relazioni tra versioni non valide"));
+            return Err(error(
+                "invalid version relationships",
+                "relazioni tra versioni non valide",
+            ));
         }
         let heads: Vec<String> = links
             .keys()
@@ -133,6 +148,7 @@ impl Catalog {
             .collect();
         if heads.iter().any(|id| !snapshots.contains_key(id)) {
             return Err(error(
+                "incomplete history: the content of a current version is missing",
                 "storico incompleto: manca il contenuto di una versione corrente",
             ));
         }
@@ -150,7 +166,7 @@ impl Catalog {
         while let Some((_, id)) = ready.pop_last() {
             order.insert(id.clone(), order.len());
             for parent in &links[&id] {
-                let count = remaining.get_mut(parent).expect("genitore verificato");
+                let count = remaining.get_mut(parent).expect("verified parent");
                 *count -= 1;
                 if *count == 0 {
                     ready.insert((date(parent), parent.clone()));
@@ -207,14 +223,23 @@ pub fn merge_link(
     parents.dedup();
     if let Some(previous) = links.get(id) {
         if *previous != parents {
-            return Err(error("collegamenti autenticati in contraddizione"));
+            return Err(error(
+                "contradictory authenticated links",
+                "collegamenti autenticati in contraddizione",
+            ));
         }
     } else {
         if links.len() >= MAX_LINEAGE + MAX_VERSIONS {
-            return Err(error("troppi collegamenti nello storico"));
+            return Err(error(
+                "too many links in history",
+                "troppi collegamenti nello storico",
+            ));
         }
         if !limits::valid_id(id) {
-            return Err(error("identificativo di versione non valido"));
+            return Err(error(
+                "invalid version identifier",
+                "identificativo di versione non valido",
+            ));
         }
         links.insert(id.to_string(), parents);
     }
@@ -300,5 +325,37 @@ mod tests {
             >(()))
             .is_err()
         );
+    }
+
+    #[test]
+    fn errors_render_in_english_and_italian() {
+        use crate::i18n::{Lang, with_lang};
+
+        with_lang(Lang::En, || {
+            let err = assemble(Vec::new()).err().unwrap();
+            assert_eq!(err.0, "no versioned copy available");
+            assert_eq!(err.to_string(), "no versioned copy available");
+            let err = assemble(vec![copy(2, &[1], 2)]).err().unwrap();
+            assert_eq!(
+                err.to_string(),
+                "incomplete history: a previous version is missing; no vault was replaced"
+            );
+            let mut links = BTreeMap::new();
+            let err = merge_link(&mut links, "bad-id", &[]).unwrap_err();
+            assert_eq!(err.to_string(), "invalid version identifier");
+        });
+        with_lang(Lang::It, || {
+            let err = assemble(Vec::new()).err().unwrap();
+            assert_eq!(err.0, "nessuna copia versionata disponibile");
+            assert_eq!(err.to_string(), "nessuna copia versionata disponibile");
+            let err = assemble(vec![copy(2, &[1], 2)]).err().unwrap();
+            assert_eq!(
+                err.to_string(),
+                "storico incompleto: manca una versione precedente; nessun vault è stato sostituito"
+            );
+            let mut links = BTreeMap::new();
+            let err = merge_link(&mut links, "bad-id", &[]).unwrap_err();
+            assert_eq!(err.to_string(), "identificativo di versione non valido");
+        });
     }
 }

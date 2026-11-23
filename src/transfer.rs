@@ -1,8 +1,9 @@
 //! CSV exchange with other password managers. Columns are recognised by name,
 //! so files from common applications can be imported as they are.
 
+use crate::i18n::{is_italian, tr};
 use crate::model::Credential;
-use thiserror::Error;
+use std::fmt;
 use zeroize::Zeroizing;
 
 pub const MAX_IMPORT_BYTES: u64 = 8 * 1024 * 1024;
@@ -21,17 +22,41 @@ const PASSWORD: [&str; 2] = ["password", "login_password"];
 const ADDRESS: [&str; 6] = ["address", "indirizzo", "url", "login_uri", "uri", "website"];
 const NOTES: [&str; 4] = ["notes", "note", "notes_plain", "extra"];
 
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum TransferError {
-    #[error("il file non è UTF-8: salvalo in questa codifica e riprova")]
     Encoding,
-    #[error("CSV non valido: virgolette non chiuse")]
     UnterminatedQuote,
-    #[error("CSV non riconosciuto: servono almeno le colonne descrizione e password")]
     MissingColumns,
-    #[error("riga {0} del CSV senza descrizione")]
     MissingDescription(usize),
 }
+
+impl fmt::Display for TransferError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Encoding => f.write_str(tr(
+                "the file is not UTF-8: save it with UTF-8 encoding and try again",
+                "il file non è UTF-8: salvalo in questa codifica e riprova",
+            )),
+            Self::UnterminatedQuote => f.write_str(tr(
+                "invalid CSV: unterminated quote",
+                "CSV non valido: virgolette non chiuse",
+            )),
+            Self::MissingColumns => f.write_str(tr(
+                "unrecognized CSV: at least description and password columns are required",
+                "CSV non riconosciuto: servono almeno le colonne descrizione e password",
+            )),
+            Self::MissingDescription(line) => {
+                if is_italian() {
+                    write!(f, "riga {line} del CSV senza descrizione")
+                } else {
+                    write!(f, "CSV row {line} is missing a description")
+                }
+            }
+        }
+    }
+}
+
+impl std::error::Error for TransferError {}
 
 pub fn encode(credentials: &[Credential]) -> Zeroizing<String> {
     let mut output = Zeroizing::new(COLUMNS.join(",") + "\r\n");
@@ -225,5 +250,68 @@ mod tests {
             failure(b"name,password\nA,1\n,2\n"),
             TransferError::MissingDescription(3)
         );
+    }
+
+    #[test]
+    fn italian_and_english_csv_headers_are_both_accepted() {
+        let italian = "descrizione,utente,password,indirizzo,note\nPosta,mario,segreto,https://mail.example,appunto\n";
+        let rows = decode(italian.as_bytes()).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].description, "Posta");
+        assert_eq!(rows[0].username, "mario");
+        assert_eq!(rows[0].password, "segreto");
+        assert_eq!(rows[0].address, "https://mail.example");
+        assert_eq!(rows[0].notes, "appunto");
+
+        let english = "description,username,password,address,notes\nMail,mario,secret,https://mail.example,note\n";
+        let rows = decode(english.as_bytes()).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].description, "Mail");
+        assert_eq!(rows[0].username, "mario");
+        assert_eq!(rows[0].password, "secret");
+        assert_eq!(rows[0].address, "https://mail.example");
+        assert_eq!(rows[0].notes, "note");
+    }
+
+    #[test]
+    fn errors_render_in_english_and_italian() {
+        use crate::i18n::{Lang, with_lang};
+
+        with_lang(Lang::En, || {
+            assert_eq!(
+                TransferError::Encoding.to_string(),
+                "the file is not UTF-8: save it with UTF-8 encoding and try again"
+            );
+            assert_eq!(
+                TransferError::UnterminatedQuote.to_string(),
+                "invalid CSV: unterminated quote"
+            );
+            assert_eq!(
+                TransferError::MissingColumns.to_string(),
+                "unrecognized CSV: at least description and password columns are required"
+            );
+            assert_eq!(
+                TransferError::MissingDescription(3).to_string(),
+                "CSV row 3 is missing a description"
+            );
+        });
+        with_lang(Lang::It, || {
+            assert_eq!(
+                TransferError::Encoding.to_string(),
+                "il file non è UTF-8: salvalo in questa codifica e riprova"
+            );
+            assert_eq!(
+                TransferError::UnterminatedQuote.to_string(),
+                "CSV non valido: virgolette non chiuse"
+            );
+            assert_eq!(
+                TransferError::MissingColumns.to_string(),
+                "CSV non riconosciuto: servono almeno le colonne descrizione e password"
+            );
+            assert_eq!(
+                TransferError::MissingDescription(3).to_string(),
+                "riga 3 del CSV senza descrizione"
+            );
+        });
     }
 }

@@ -5,6 +5,7 @@
 
 pub mod catalog;
 pub mod format;
+pub mod i18n;
 pub mod keyfile;
 pub mod limits;
 pub mod model;

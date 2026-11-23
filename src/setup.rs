@@ -2,20 +2,37 @@
 //! the key file and the S3 destination with its access keys. The master
 //! password is never part of it.
 
+use crate::i18n::tr;
 use crate::keyfile::{FILE_LEN, KeyFile, KeyFileError};
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
+use std::fmt;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 pub const SETUP_PREFIX: &str = "SEKEEPER-SETUP:1:";
 
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum SetupError {
-    #[error("questo QR code non contiene una configurazione di Sekeeper")]
     Invalid,
-    #[error("il file chiave nel QR code non è valido")]
     KeyFile,
 }
+
+impl fmt::Display for SetupError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let message = match self {
+            Self::Invalid => tr(
+                "this QR code does not contain a Sekeeper setup",
+                "questo QR code non contiene una configurazione di Sekeeper",
+            ),
+            Self::KeyFile => tr(
+                "the key file in the QR code is invalid",
+                "il file chiave nel QR code non è valido",
+            ),
+        };
+        f.write_str(message)
+    }
+}
+
+impl std::error::Error for SetupError {}
 
 #[derive(Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct DeviceSetup {
@@ -72,7 +89,7 @@ impl DeviceSetup {
     }
 
     pub fn to_text(&self) -> Zeroizing<String> {
-        let json = Zeroizing::new(serde_json::to_string(self).expect("serializzazione"));
+        let json = Zeroizing::new(serde_json::to_string(self).expect("serialization"));
         Zeroizing::new(format!("{SETUP_PREFIX}{}", json.as_str()))
     }
 
@@ -152,5 +169,31 @@ mod tests {
         assert!(DeviceSetup::new(&KEY[..71], "b", "r", "p/", "", "").is_err());
         assert!(DeviceSetup::new(KEY, "b", "r", "p/", "AKIA", "").is_err());
         assert!(DeviceSetup::new(KEY, "b c", "r", "p/", "", "").is_err());
+    }
+
+    #[test]
+    fn errors_render_in_english_and_italian() {
+        use crate::i18n::{Lang, with_lang};
+
+        with_lang(Lang::En, || {
+            assert_eq!(
+                SetupError::Invalid.to_string(),
+                "this QR code does not contain a Sekeeper setup"
+            );
+            assert_eq!(
+                SetupError::KeyFile.to_string(),
+                "the key file in the QR code is invalid"
+            );
+        });
+        with_lang(Lang::It, || {
+            assert_eq!(
+                SetupError::Invalid.to_string(),
+                "questo QR code non contiene una configurazione di Sekeeper"
+            );
+            assert_eq!(
+                SetupError::KeyFile.to_string(),
+                "il file chiave nel QR code non è valido"
+            );
+        });
     }
 }
